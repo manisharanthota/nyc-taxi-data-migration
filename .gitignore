@@ -1,0 +1,16 @@
+# Data (large parquet/CSV downloads)
+data/
+*.parquet
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Logs
+logs/
