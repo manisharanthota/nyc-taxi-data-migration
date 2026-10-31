@@ -2,7 +2,7 @@ $out  = Join-Path $PSScriptRoot "..\data\raw"
 $base = "https://d37ci6vzurychx.cloudfront.net/trip-data"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-$years = 2025..2026
+$years = 2024..2026
 $total = $years.Count * 12 * 2
 $i = 0
 
