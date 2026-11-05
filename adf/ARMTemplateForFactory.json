@@ -1,0 +1,1218 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "type": "string",
+            "metadata": "Data Factory name",
+            "defaultValue": "adf-nyctaxi-us-dev"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_server": {
+            "type": "string",
+            "defaultValue": "localhost,1433"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_database": {
+            "type": "string",
+            "defaultValue": "NYCTaxi"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_userName": {
+            "type": "string",
+            "defaultValue": "adf_reader"
+        },
+        "ls_adls_nyctaxi_properties_typeProperties_url": {
+            "type": "string",
+            "defaultValue": "https://stnyctaxidev01.dfs.core.windows.net/"
+        },
+        "ls_keyvault_properties_typeProperties_baseUrl": {
+            "type": "string",
+            "defaultValue": "https://kv-nyctaxi-dev-01.vault.azure.net/"
+        }
+    },
+    "variables": {
+        "factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(parameters('factoryName'), '/ir-local-pc')]",
+            "type": "Microsoft.DataFactory/factories/integrationRuntimes",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "type": "SelfHosted",
+                "typeProperties": {}
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_smoke_test')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "Copy data1",
+                        "type": "Copy",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "SqlServerSource",
+                                "queryTimeout": "02:00:00",
+                                "partitionOption": "None"
+                            },
+                            "sink": {
+                                "type": "ParquetSink",
+                                "storeSettings": {
+                                    "type": "AzureBlobFSWriteSettings"
+                                },
+                                "formatSettings": {
+                                    "type": "ParquetWriteSettings"
+                                }
+                            },
+                            "enableStaging": false,
+                            "translator": {
+                                "type": "TabularTranslator",
+                                "typeConversion": true,
+                                "typeConversionSettings": {
+                                    "allowDataTruncation": true,
+                                    "treatBooleanAsNumber": false
+                                }
+                            }
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "ds_sql_vendor",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "ds_adls_vendor_parquet",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ]
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-01T16:13:56Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_sql_vendor')]",
+                "[concat(variables('factoryId'), '/datasets/ds_adls_vendor_parquet')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_load_trip_month')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "log_start",
+                        "type": "SqlServerStoredProcedure",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "storedProcedureName": "[[etl].[usp_adf_log_start]",
+                            "storedProcedureParameters": {
+                                "run_id": {
+                                    "value": {
+                                        "value": "@pipeline().RunId",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "table_name": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.table_name",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "year_month": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.year_month",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "ls_sqlserver_nyctaxi",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "copy_month",
+                        "type": "Copy",
+                        "dependsOn": [
+                            {
+                                "activity": "log_start",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "SqlServerSource",
+                                "sqlReaderQuery": {
+                                    "value": "@concat('SELECT * FROM ', pipeline().parameters.table_name,\n' WHERE pickup_datetime >= CAST(''', pipeline().parameters.year_month, '-01'' AS datetime2(0))',\n' AND pickup_datetime < DATEADD(MONTH, 1, CAST(''', pipeline().parameters.year_month, '-01'' AS datetime2(0)))')",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "02:00:00",
+                                "partitionOption": "None"
+                            },
+                            "sink": {
+                                "type": "ParquetSink",
+                                "storeSettings": {
+                                    "type": "AzureBlobFSWriteSettings"
+                                },
+                                "formatSettings": {
+                                    "type": "ParquetWriteSettings"
+                                }
+                            },
+                            "enableStaging": false,
+                            "translator": {
+                                "type": "TabularTranslator",
+                                "typeConversion": true,
+                                "typeConversionSettings": {
+                                    "allowDataTruncation": true,
+                                    "treatBooleanAsNumber": false
+                                }
+                            }
+                        },
+                        "inputs": [
+                            {
+                                "referenceName": "ds_sql_nyctaxi",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        ],
+                        "outputs": [
+                            {
+                                "referenceName": "ds_adls_trips_parquet",
+                                "type": "DatasetReference",
+                                "parameters": {
+                                    "folder": {
+                                        "value": "@replace(pipeline().parameters.table_name, 'trips.', '')",
+                                        "type": "Expression"
+                                    },
+                                    "year": {
+                                        "value": "@substring(pipeline().parameters.year_month, 0, 4)",
+                                        "type": "Expression"
+                                    },
+                                    "month": {
+                                        "value": "@substring(pipeline().parameters.year_month, 5, 2)",
+                                        "type": "Expression"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "name": "log_success",
+                        "type": "SqlServerStoredProcedure",
+                        "dependsOn": [
+                            {
+                                "activity": "copy_month",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "storedProcedureName": "[[etl].[usp_adf_log_end]",
+                            "storedProcedureParameters": {
+                                "error": {
+                                    "value": null,
+                                    "type": "String"
+                                },
+                                "rows_copied": {
+                                    "value": {
+                                        "value": "@activity('copy_month').output.rowsCopied",
+                                        "type": "Expression"
+                                    },
+                                    "type": "Int64"
+                                },
+                                "rows_read": {
+                                    "value": {
+                                        "value": "@activity('copy_month').output.rowsRead",
+                                        "type": "Expression"
+                                    },
+                                    "type": "Int64"
+                                },
+                                "run_id": {
+                                    "value": {
+                                        "value": "@pipeline().RunId",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "status": {
+                                    "value": "success",
+                                    "type": "String"
+                                },
+                                "table_name": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.table_name",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "year_month": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.year_month",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "ls_sqlserver_nyctaxi",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "log_failed",
+                        "type": "SqlServerStoredProcedure",
+                        "dependsOn": [
+                            {
+                                "activity": "copy_month",
+                                "dependencyConditions": [
+                                    "Failed"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "storedProcedureName": "[[etl].[usp_adf_log_end]",
+                            "storedProcedureParameters": {
+                                "error": {
+                                    "value": {
+                                        "value": "@activity('copy_month').error.message",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "rows_copied": {
+                                    "value": null,
+                                    "type": "Int64"
+                                },
+                                "rows_read": {
+                                    "value": null,
+                                    "type": "Int64"
+                                },
+                                "run_id": {
+                                    "value": {
+                                        "value": "@pipeline().RunId",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "status": {
+                                    "value": "failed",
+                                    "type": "String"
+                                },
+                                "table_name": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.table_name",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                },
+                                "year_month": {
+                                    "value": {
+                                        "value": "@pipeline().parameters.year_month",
+                                        "type": "Expression"
+                                    },
+                                    "type": "String"
+                                }
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "ls_sqlserver_nyctaxi",
+                            "type": "LinkedServiceReference"
+                        }
+                    },
+                    {
+                        "name": "fail_month",
+                        "type": "Fail",
+                        "dependsOn": [
+                            {
+                                "activity": "log_failed",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "message": {
+                                "value": "@concat('Copy failed: ', pipeline().parameters.table_name, ' ', pipeline().parameters.year_month)",
+                                "type": "Expression"
+                            },
+                            "errorCode": "500"
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "parameters": {
+                    "table_name": {
+                        "type": "string",
+                        "defaultValue": "trips.green_trip"
+                    },
+                    "year_month": {
+                        "type": "string",
+                        "defaultValue": "2025-02"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-01T22:19:24Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]",
+                "[concat(variables('factoryId'), '/datasets/ds_sql_nyctaxi')]",
+                "[concat(variables('factoryId'), '/datasets/ds_adls_trips_parquet')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_full_load_trips')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "lkp_months",
+                        "type": "Lookup",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "SqlServerSource",
+                                "sqlReaderQuery": "SELECT  c.table_name, c.year_month\nFROM audit.control_totals c\nWHERE c.captured_at = (SELECT MAX(captured_at) FROM audit.control_totals)\n  AND NOT EXISTS (SELECT 1 FROM etl.adf_load_log l\n                  WHERE l.table_name = c.table_name\n                    AND l.year_month = c.year_month\n                    AND l.status = 'success')\nORDER BY c.table_name, c.year_month;",
+                                "queryTimeout": "02:00:00",
+                                "partitionOption": "None"
+                            },
+                            "dataset": {
+                                "referenceName": "ds_sql_nyctaxi",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            },
+                            "firstRowOnly": false
+                        }
+                    },
+                    {
+                        "name": "foreach_month",
+                        "type": "ForEach",
+                        "dependsOn": [
+                            {
+                                "activity": "lkp_months",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "items": {
+                                "value": "@activity('lkp_months').output.value",
+                                "type": "Expression"
+                            },
+                            "isSequential": true,
+                            "activities": [
+                                {
+                                    "name": "run_child",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "pl_load_trip_month",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "table_name": {
+                                                "value": "@item().table_name",
+                                                "type": "Expression"
+                                            },
+                                            "year_month": {
+                                                "value": "@item().year_month",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-01T23:35:42Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_sql_nyctaxi')]",
+                "[concat(variables('factoryId'), '/pipelines/pl_load_trip_month')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_incr_load_trip')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "lkp_old_watermark",
+                        "type": "Lookup",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.02:00:00",
+                            "retry": 2,
+                            "retryIntervalInSeconds": 60,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "SqlServerSource",
+                                "sqlReaderQuery": {
+                                    "value": "SELECT last_value FROM etl.watermark WHERE table_name = '@{pipeline().parameters.table_name}'",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "02:00:00",
+                                "partitionOption": "None"
+                            },
+                            "dataset": {
+                                "referenceName": "ds_sql_nyctaxi",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        }
+                    },
+                    {
+                        "name": "lkp_new_watermark",
+                        "type": "Lookup",
+                        "dependsOn": [],
+                        "policy": {
+                            "timeout": "0.02:00:00",
+                            "retry": 2,
+                            "retryIntervalInSeconds": 60,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "source": {
+                                "type": "SqlServerSource",
+                                "sqlReaderQuery": {
+                                    "value": "SELECT MAX(created_at) AS new_value FROM @{pipeline().parameters.table_name}",
+                                    "type": "Expression"
+                                },
+                                "queryTimeout": "02:00:00",
+                                "partitionOption": "None"
+                            },
+                            "dataset": {
+                                "referenceName": "ds_sql_nyctaxi",
+                                "type": "DatasetReference",
+                                "parameters": {}
+                            }
+                        }
+                    },
+                    {
+                        "name": "if_new_rows",
+                        "type": "IfCondition",
+                        "dependsOn": [
+                            {
+                                "activity": "lkp_old_watermark",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            },
+                            {
+                                "activity": "lkp_new_watermark",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "expression": {
+                                "value": "@greater(\n  ticks(activity('lkp_new_watermark').output.firstRow.new_value),\n  ticks(activity('lkp_old_watermark').output.firstRow.last_value)\n)",
+                                "type": "Expression"
+                            },
+                            "ifTrueActivities": [
+                                {
+                                    "name": "log_start",
+                                    "type": "SqlServerStoredProcedure",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "0.02:00:00",
+                                        "retry": 2,
+                                        "retryIntervalInSeconds": 60,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "storedProcedureName": "[[etl].[usp_adf_log_start]",
+                                        "storedProcedureParameters": {
+                                            "run_id": {
+                                                "value": {
+                                                    "value": "@pipeline().RunId",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "table_name": {
+                                                "value": {
+                                                    "value": "@pipeline().parameters.table_name",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "year_month": {
+                                                "value": "INCR",
+                                                "type": "String"
+                                            }
+                                        }
+                                    },
+                                    "linkedServiceName": {
+                                        "referenceName": "ls_sqlserver_nyctaxi",
+                                        "type": "LinkedServiceReference"
+                                    }
+                                },
+                                {
+                                    "name": "copy_incr",
+                                    "type": "Copy",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "log_start",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.02:00:00",
+                                        "retry": 2,
+                                        "retryIntervalInSeconds": 60,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlServerSource",
+                                            "sqlReaderQuery": {
+                                                "value": "SELECT * FROM @{pipeline().parameters.table_name}\nWHERE created_at >  '@{formatDateTime(activity('lkp_old_watermark').output.firstRow.last_value, 'yyyy-MM-dd HH:mm:ss.fff')}'\n  AND created_at <= '@{formatDateTime(activity('lkp_new_watermark').output.firstRow.new_value, 'yyyy-MM-dd HH:mm:ss.fff')}'",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "sink": {
+                                            "type": "ParquetSink",
+                                            "storeSettings": {
+                                                "type": "AzureBlobFSWriteSettings"
+                                            },
+                                            "formatSettings": {
+                                                "type": "ParquetWriteSettings"
+                                            }
+                                        },
+                                        "enableStaging": false,
+                                        "translator": {
+                                            "type": "TabularTranslator",
+                                            "typeConversion": true,
+                                            "typeConversionSettings": {
+                                                "allowDataTruncation": true,
+                                                "treatBooleanAsNumber": false
+                                            }
+                                        }
+                                    },
+                                    "inputs": [
+                                        {
+                                            "referenceName": "ds_sql_nyctaxi",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    ],
+                                    "outputs": [
+                                        {
+                                            "referenceName": "ds_adls_trips_incr_parquet",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "folder": "@replace(pipeline().parameters.table_name, 'trips.', '')",
+                                                "load_id": {
+                                                    "value": "@pipeline().RunId",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "name": "update_watermark",
+                                    "type": "SqlServerStoredProcedure",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "copy_incr",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.02:00:00",
+                                        "retry": 2,
+                                        "retryIntervalInSeconds": 60,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "storedProcedureName": "[[etl].[usp_update_watermark]",
+                                        "storedProcedureParameters": {
+                                            "new_value": {
+                                                "value": {
+                                                    "value": "@formatDateTime(activity('lkp_new_watermark').output.firstRow.new_value, 'yyyy-MM-dd HH:mm:ss.fff')",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "run_id": {
+                                                "value": {
+                                                    "value": "@pipeline().RunId",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "table_name": {
+                                                "value": {
+                                                    "value": "@pipeline().parameters.table_name",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            }
+                                        }
+                                    },
+                                    "linkedServiceName": {
+                                        "referenceName": "ls_sqlserver_nyctaxi",
+                                        "type": "LinkedServiceReference"
+                                    }
+                                },
+                                {
+                                    "name": "log_success",
+                                    "type": "SqlServerStoredProcedure",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "update_watermark",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.02:00:00",
+                                        "retry": 2,
+                                        "retryIntervalInSeconds": 60,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "storedProcedureName": "[[etl].[usp_adf_log_end]",
+                                        "storedProcedureParameters": {
+                                            "error": {
+                                                "value": null,
+                                                "type": "String"
+                                            },
+                                            "rows_copied": {
+                                                "value": {
+                                                    "value": "@activity('copy_incr').output.rowsCopied",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "Int64"
+                                            },
+                                            "rows_read": {
+                                                "value": {
+                                                    "value": "@activity('copy_incr').output.rowsRead",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "Int64"
+                                            },
+                                            "run_id": {
+                                                "value": {
+                                                    "value": "@pipeline().RunId",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "status": {
+                                                "value": "success",
+                                                "type": "String"
+                                            },
+                                            "table_name": {
+                                                "value": {
+                                                    "value": "@pipeline().parameters.table_name",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "year_month": {
+                                                "value": "INCR",
+                                                "type": "String"
+                                            }
+                                        }
+                                    },
+                                    "linkedServiceName": {
+                                        "referenceName": "ls_sqlserver_nyctaxi",
+                                        "type": "LinkedServiceReference"
+                                    }
+                                },
+                                {
+                                    "name": "log_failed",
+                                    "type": "SqlServerStoredProcedure",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "copy_incr",
+                                            "dependencyConditions": [
+                                                "Failed"
+                                            ]
+                                        }
+                                    ],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "storedProcedureName": "[[etl].[usp_adf_log_end]",
+                                        "storedProcedureParameters": {
+                                            "error": {
+                                                "value": {
+                                                    "value": "@activity('copy_incr').error.message",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "rows_copied": {
+                                                "value": null,
+                                                "type": "Int64"
+                                            },
+                                            "rows_read": {
+                                                "value": null,
+                                                "type": "Int64"
+                                            },
+                                            "run_id": {
+                                                "value": {
+                                                    "value": "@pipeline().RunId",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "status": {
+                                                "value": "failed",
+                                                "type": "String"
+                                            },
+                                            "table_name": {
+                                                "value": {
+                                                    "value": "@pipeline().parameters.table_name",
+                                                    "type": "Expression"
+                                                },
+                                                "type": "String"
+                                            },
+                                            "year_month": {
+                                                "value": "INCR",
+                                                "type": "String"
+                                            }
+                                        }
+                                    },
+                                    "linkedServiceName": {
+                                        "referenceName": "ls_sqlserver_nyctaxi",
+                                        "type": "LinkedServiceReference"
+                                    }
+                                },
+                                {
+                                    "name": "fail_copy",
+                                    "type": "Fail",
+                                    "dependsOn": [
+                                        {
+                                            "activity": "log_failed",
+                                            "dependencyConditions": [
+                                                "Succeeded"
+                                            ]
+                                        }
+                                    ],
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "message": "Incremental copy failed",
+                                        "errorCode": "505"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "parameters": {
+                    "table_name": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-05T04:16:01Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_sql_nyctaxi')]",
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]",
+                "[concat(variables('factoryId'), '/datasets/ds_adls_trips_incr_parquet')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/pl_incr_load_trips')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "activities": [
+                    {
+                        "name": "foreach_table",
+                        "type": "ForEach",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "items": {
+                                "value": "@pipeline().parameters.tables",
+                                "type": "Expression"
+                            },
+                            "isSequential": true,
+                            "activities": [
+                                {
+                                    "name": "run_incr_child",
+                                    "type": "ExecutePipeline",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "pipeline": {
+                                            "referenceName": "pl_incr_load_trip",
+                                            "type": "PipelineReference"
+                                        },
+                                        "waitOnCompletion": true,
+                                        "parameters": {
+                                            "table_name": {
+                                                "value": "@item()",
+                                                "type": "Expression"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "parameters": {
+                    "tables": {
+                        "type": "array",
+                        "defaultValue": [
+                            "trips.yellow_trip",
+                            "trips.green_trip"
+                        ]
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-03T04:42:40Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/pipelines/pl_incr_load_trip')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_sqlserver_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "SqlServer",
+                "typeProperties": {
+                    "server": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_server')]",
+                    "database": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_database')]",
+                    "encrypt": "mandatory",
+                    "trustServerCertificate": true,
+                    "authenticationType": "SQL",
+                    "userName": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_userName')]",
+                    "password": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": {
+                            "referenceName": "ls_keyvault",
+                            "type": "LinkedServiceReference"
+                        },
+                        "secretName": "sql-adf-reader-password"
+                    }
+                },
+                "connectVia": {
+                    "referenceName": "ir-local-pc",
+                    "type": "IntegrationRuntimeReference"
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/integrationRuntimes/ir-local-pc')]",
+                "[concat(variables('factoryId'), '/linkedServices/ls_keyvault')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_adls_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                    "url": "[parameters('ls_adls_nyctaxi_properties_typeProperties_url')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_keyvault')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureKeyVault",
+                "typeProperties": {
+                    "baseUrl": "[parameters('ls_keyvault_properties_typeProperties_baseUrl')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_sql_vendor')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_sqlserver_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [
+                    {
+                        "name": "vendor_id",
+                        "type": "tinyint",
+                        "precision": 3
+                    },
+                    {
+                        "name": "description",
+                        "type": "varchar"
+                    }
+                ],
+                "typeProperties": {
+                    "schema": "ref",
+                    "table": "vendor"
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_vendor_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": "vendor.parquet",
+                        "folderPath": "nyctaxi/ref_vendor",
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_sql_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_sqlserver_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [],
+                "typeProperties": {}
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "folder": {
+                        "type": "string"
+                    },
+                    "year": {
+                        "type": "string"
+                    },
+                    "month": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@concat(dataset().folder, '.parquet')",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "@concat('nyctaxi/', dataset().folder, '/year=', dataset().year, '/month=', dataset().month)",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_incr_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "folder": {
+                        "type": "string"
+                    },
+                    "load_id": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@{dataset().folder}.parquet",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "nyctaxi/@{dataset().folder}/incremental/load_id=@{dataset().load_id}",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        }
+    ]
+}

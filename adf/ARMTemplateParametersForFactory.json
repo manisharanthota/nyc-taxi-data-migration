@@ -1,0 +1,24 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "factoryName": {
+            "value": "adf-nyctaxi-us-dev"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_server": {
+            "value": "localhost,1433"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_database": {
+            "value": "NYCTaxi"
+        },
+        "ls_sqlserver_nyctaxi_properties_typeProperties_userName": {
+            "value": "adf_reader"
+        },
+        "ls_adls_nyctaxi_properties_typeProperties_url": {
+            "value": "https://stnyctaxidev01.dfs.core.windows.net/"
+        },
+        "ls_keyvault_properties_typeProperties_baseUrl": {
+            "value": "https://kv-nyctaxi-dev-01.vault.azure.net/"
+        }
+    }
+}
