@@ -20,7 +20,7 @@ def load_bronze(table: str):
           .withColumn("_ingested_at", F.current_timestamp()))
 
     (df.writeStream
-       .option("checkpointLocation", f"{chk}/_checkpoint")
+       .option("checkpointLocation", f"{chk}/_checkpoints")   # must match the folder created on first load
        .trigger(availableNow=True)          # batch-style: load all new files, then stop (serverless)
        .toTable(f"nyctaxi.bronze.{table}")
        .awaitTermination())
