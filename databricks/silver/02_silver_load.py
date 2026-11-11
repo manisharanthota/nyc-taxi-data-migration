@@ -110,7 +110,8 @@ def load_silver(taxi_type):
         merge_quarantine(q)
         flag_reversals(s, taxi_type)
 
-    (spark.readStream.table(f"nyctaxi.bronze.{taxi_type}_trip")
+    (spark.readStream.option("skipChangeCommits", "true")
+      .table(f"nyctaxi.bronze.{taxi_type}_trip")
         .writeStream
         .foreachBatch(process_batch)
         .option("checkpointLocation", chk)
