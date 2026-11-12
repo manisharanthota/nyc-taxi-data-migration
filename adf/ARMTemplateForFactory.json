@@ -43,6 +43,260 @@
             "dependsOn": []
         },
         {
+            "name": "[concat(parameters('factoryName'), '/ls_sqlserver_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "SqlServer",
+                "typeProperties": {
+                    "server": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_server')]",
+                    "database": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_database')]",
+                    "encrypt": "mandatory",
+                    "trustServerCertificate": true,
+                    "authenticationType": "SQL",
+                    "userName": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_userName')]",
+                    "password": {
+                        "type": "AzureKeyVaultSecret",
+                        "store": {
+                            "referenceName": "ls_keyvault",
+                            "type": "LinkedServiceReference"
+                        },
+                        "secretName": "sql-adf-reader-password"
+                    }
+                },
+                "connectVia": {
+                    "referenceName": "ir-local-pc",
+                    "type": "IntegrationRuntimeReference"
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/integrationRuntimes/ir-local-pc')]",
+                "[concat(variables('factoryId'), '/linkedServices/ls_keyvault')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_adls_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureBlobFS",
+                "typeProperties": {
+                    "url": "[parameters('ls_adls_nyctaxi_properties_typeProperties_url')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_keyvault')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureKeyVault",
+                "typeProperties": {
+                    "baseUrl": "[parameters('ls_keyvault_properties_typeProperties_baseUrl')]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_sql_vendor')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_sqlserver_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [
+                    {
+                        "name": "vendor_id",
+                        "type": "tinyint",
+                        "precision": 3
+                    },
+                    {
+                        "name": "description",
+                        "type": "varchar"
+                    }
+                ],
+                "typeProperties": {
+                    "schema": "ref",
+                    "table": "vendor"
+                }
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_vendor_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": "vendor.parquet",
+                        "folderPath": "nyctaxi/ref_vendor",
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_sql_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_sqlserver_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "annotations": [],
+                "type": "SqlServerTable",
+                "schema": [],
+                "typeProperties": {}
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "folder": {
+                        "type": "string"
+                    },
+                    "year": {
+                        "type": "string"
+                    },
+                    "month": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@concat(dataset().folder, '.parquet')",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "@concat('nyctaxi/', dataset().folder, '/year=', dataset().year, '/month=', dataset().month)",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_incr_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "folder": {
+                        "type": "string"
+                    },
+                    "load_id": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@{dataset().folder}.parquet",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "nyctaxi/@{dataset().folder}/incremental/load_id=@{dataset().load_id}",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ds_adls_ref_parquet')]",
+            "type": "Microsoft.DataFactory/factories/datasets",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "linkedServiceName": {
+                    "referenceName": "ls_adls_nyctaxi",
+                    "type": "LinkedServiceReference"
+                },
+                "parameters": {
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "annotations": [],
+                "type": "Parquet",
+                "typeProperties": {
+                    "location": {
+                        "type": "AzureBlobFSLocation",
+                        "fileName": {
+                            "value": "@concat(dataset().name, '.parquet')",
+                            "type": "Expression"
+                        },
+                        "folderPath": {
+                            "value": "@concat('nyctaxi/ref_', dataset().name)",
+                            "type": "Expression"
+                        },
+                        "fileSystem": "bronze"
+                    },
+                    "compressionCodec": "snappy"
+                },
+                "schema": []
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+            ]
+        },
+        {
             "name": "[concat(parameters('factoryName'), '/pl_smoke_test')]",
             "type": "Microsoft.DataFactory/factories/pipelines",
             "apiVersion": "2018-06-01",
@@ -976,8 +1230,39 @@
                                 }
                             ]
                         }
+                    },
+                    {
+                        "name": "run_databricks_job",
+                        "type": "DatabricksJob",
+                        "dependsOn": [
+                            {
+                                "activity": "foreach_table",
+                                "dependencyConditions": [
+                                    "Succeeded"
+                                ]
+                            }
+                        ],
+                        "policy": {
+                            "timeout": "0.12:00:00",
+                            "retry": 0,
+                            "retryIntervalInSeconds": 30,
+                            "secureOutput": false,
+                            "secureInput": false
+                        },
+                        "userProperties": [],
+                        "typeProperties": {
+                            "jobId": "588793338242867",
+                            "jobParameters": {
+                                "table": "green"
+                            }
+                        },
+                        "linkedServiceName": {
+                            "referenceName": "ls_databricks_nyctaxi",
+                            "type": "LinkedServiceReference"
+                        }
                     }
                 ],
+                "concurrency": 1,
                 "policy": {
                     "elapsedTimeMetric": {}
                 },
@@ -994,224 +1279,160 @@
                 "lastPublishTime": "2026-11-03T04:42:40Z"
             },
             "dependsOn": [
+                "[concat(variables('factoryId'), '/linkedServices/ls_databricks_nyctaxi')]",
                 "[concat(variables('factoryId'), '/pipelines/pl_incr_load_trip')]"
             ]
         },
         {
-            "name": "[concat(parameters('factoryName'), '/ls_sqlserver_nyctaxi')]",
-            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "name": "[concat(parameters('factoryName'), '/pl_load_ref')]",
+            "type": "Microsoft.DataFactory/factories/pipelines",
             "apiVersion": "2018-06-01",
             "properties": {
-                "annotations": [],
-                "type": "SqlServer",
-                "typeProperties": {
-                    "server": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_server')]",
-                    "database": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_database')]",
-                    "encrypt": "mandatory",
-                    "trustServerCertificate": true,
-                    "authenticationType": "SQL",
-                    "userName": "[parameters('ls_sqlserver_nyctaxi_properties_typeProperties_userName')]",
-                    "password": {
-                        "type": "AzureKeyVaultSecret",
-                        "store": {
-                            "referenceName": "ls_keyvault",
-                            "type": "LinkedServiceReference"
-                        },
-                        "secretName": "sql-adf-reader-password"
-                    }
-                },
-                "connectVia": {
-                    "referenceName": "ir-local-pc",
-                    "type": "IntegrationRuntimeReference"
-                }
-            },
-            "dependsOn": [
-                "[concat(variables('factoryId'), '/integrationRuntimes/ir-local-pc')]",
-                "[concat(variables('factoryId'), '/linkedServices/ls_keyvault')]"
-            ]
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ls_adls_nyctaxi')]",
-            "type": "Microsoft.DataFactory/factories/linkedServices",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "annotations": [],
-                "type": "AzureBlobFS",
-                "typeProperties": {
-                    "url": "[parameters('ls_adls_nyctaxi_properties_typeProperties_url')]"
-                }
-            },
-            "dependsOn": []
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ls_keyvault')]",
-            "type": "Microsoft.DataFactory/factories/linkedServices",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "annotations": [],
-                "type": "AzureKeyVault",
-                "typeProperties": {
-                    "baseUrl": "[parameters('ls_keyvault_properties_typeProperties_baseUrl')]"
-                }
-            },
-            "dependsOn": []
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ds_sql_vendor')]",
-            "type": "Microsoft.DataFactory/factories/datasets",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "linkedServiceName": {
-                    "referenceName": "ls_sqlserver_nyctaxi",
-                    "type": "LinkedServiceReference"
-                },
-                "annotations": [],
-                "type": "SqlServerTable",
-                "schema": [
+                "activities": [
                     {
-                        "name": "vendor_id",
-                        "type": "tinyint",
-                        "precision": 3
-                    },
-                    {
-                        "name": "description",
-                        "type": "varchar"
+                        "name": "fe_ref",
+                        "type": "ForEach",
+                        "dependsOn": [],
+                        "userProperties": [],
+                        "typeProperties": {
+                            "items": {
+                                "value": "@pipeline().parameters.tables",
+                                "type": "Expression"
+                            },
+                            "isSequential": true,
+                            "activities": [
+                                {
+                                    "name": "copy_ref",
+                                    "type": "Copy",
+                                    "dependsOn": [],
+                                    "policy": {
+                                        "timeout": "0.12:00:00",
+                                        "retry": 0,
+                                        "retryIntervalInSeconds": 30,
+                                        "secureOutput": false,
+                                        "secureInput": false
+                                    },
+                                    "userProperties": [],
+                                    "typeProperties": {
+                                        "source": {
+                                            "type": "SqlServerSource",
+                                            "sqlReaderQuery": {
+                                                "value": "@concat('SELECT * FROM ref.', item())",
+                                                "type": "Expression"
+                                            },
+                                            "queryTimeout": "02:00:00",
+                                            "partitionOption": "None"
+                                        },
+                                        "sink": {
+                                            "type": "ParquetSink",
+                                            "storeSettings": {
+                                                "type": "AzureBlobFSWriteSettings"
+                                            },
+                                            "formatSettings": {
+                                                "type": "ParquetWriteSettings"
+                                            }
+                                        },
+                                        "enableStaging": false,
+                                        "translator": {
+                                            "type": "TabularTranslator",
+                                            "typeConversion": true,
+                                            "typeConversionSettings": {
+                                                "allowDataTruncation": true,
+                                                "treatBooleanAsNumber": false
+                                            }
+                                        }
+                                    },
+                                    "inputs": [
+                                        {
+                                            "referenceName": "ds_sql_nyctaxi",
+                                            "type": "DatasetReference",
+                                            "parameters": {}
+                                        }
+                                    ],
+                                    "outputs": [
+                                        {
+                                            "referenceName": "ds_adls_ref_parquet",
+                                            "type": "DatasetReference",
+                                            "parameters": {
+                                                "name": {
+                                                    "value": "@item()",
+                                                    "type": "Expression"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
                     }
                 ],
+                "policy": {
+                    "elapsedTimeMetric": {}
+                },
+                "parameters": {
+                    "tables": {
+                        "type": "array",
+                        "defaultValue": [
+                            "vendor",
+                            "rate_code",
+                            "payment_type",
+                            "trip_type",
+                            "taxi_zone"
+                        ]
+                    }
+                },
+                "annotations": [],
+                "lastPublishTime": "2026-11-11T01:18:17Z"
+            },
+            "dependsOn": [
+                "[concat(variables('factoryId'), '/datasets/ds_sql_nyctaxi')]",
+                "[concat(variables('factoryId'), '/datasets/ds_adls_ref_parquet')]"
+            ]
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/ls_databricks_nyctaxi')]",
+            "type": "Microsoft.DataFactory/factories/linkedServices",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "type": "AzureDatabricks",
                 "typeProperties": {
-                    "schema": "ref",
-                    "table": "vendor"
+                    "domain": "https://adb-7405619723557218.18.azuredatabricks.net",
+                    "authentication": "MSI",
+                    "workspaceResourceId": "/subscriptions/fab6d55e-6542-48be-8081-6722d20091ab/resourceGroups/rg-nyctaxi-dev/providers/Microsoft.Databricks/workspaces/dbw-nyctaxi-dev"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "name": "[concat(parameters('factoryName'), '/tr_incr_daily')]",
+            "type": "Microsoft.DataFactory/factories/triggers",
+            "apiVersion": "2018-06-01",
+            "properties": {
+                "annotations": [],
+                "runtimeState": "Started",
+                "pipelines": [
+                    {
+                        "pipelineReference": {
+                            "referenceName": "pl_incr_load_trips",
+                            "type": "PipelineReference"
+                        },
+                        "parameters": {}
+                    }
+                ],
+                "type": "ScheduleTrigger",
+                "typeProperties": {
+                    "recurrence": {
+                        "frequency": "Day",
+                        "interval": 1,
+                        "startTime": "2026-11-12T13:03:00",
+                        "timeZone": "Central Standard Time",
+                        "schedule": {}
+                    }
                 }
             },
             "dependsOn": [
-                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
-            ]
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ds_adls_vendor_parquet')]",
-            "type": "Microsoft.DataFactory/factories/datasets",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "linkedServiceName": {
-                    "referenceName": "ls_adls_nyctaxi",
-                    "type": "LinkedServiceReference"
-                },
-                "annotations": [],
-                "type": "Parquet",
-                "typeProperties": {
-                    "location": {
-                        "type": "AzureBlobFSLocation",
-                        "fileName": "vendor.parquet",
-                        "folderPath": "nyctaxi/ref_vendor",
-                        "fileSystem": "bronze"
-                    },
-                    "compressionCodec": "snappy"
-                },
-                "schema": []
-            },
-            "dependsOn": [
-                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
-            ]
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ds_sql_nyctaxi')]",
-            "type": "Microsoft.DataFactory/factories/datasets",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "linkedServiceName": {
-                    "referenceName": "ls_sqlserver_nyctaxi",
-                    "type": "LinkedServiceReference"
-                },
-                "annotations": [],
-                "type": "SqlServerTable",
-                "schema": [],
-                "typeProperties": {}
-            },
-            "dependsOn": [
-                "[concat(variables('factoryId'), '/linkedServices/ls_sqlserver_nyctaxi')]"
-            ]
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_parquet')]",
-            "type": "Microsoft.DataFactory/factories/datasets",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "linkedServiceName": {
-                    "referenceName": "ls_adls_nyctaxi",
-                    "type": "LinkedServiceReference"
-                },
-                "parameters": {
-                    "folder": {
-                        "type": "string"
-                    },
-                    "year": {
-                        "type": "string"
-                    },
-                    "month": {
-                        "type": "string"
-                    }
-                },
-                "annotations": [],
-                "type": "Parquet",
-                "typeProperties": {
-                    "location": {
-                        "type": "AzureBlobFSLocation",
-                        "fileName": {
-                            "value": "@concat(dataset().folder, '.parquet')",
-                            "type": "Expression"
-                        },
-                        "folderPath": {
-                            "value": "@concat('nyctaxi/', dataset().folder, '/year=', dataset().year, '/month=', dataset().month)",
-                            "type": "Expression"
-                        },
-                        "fileSystem": "bronze"
-                    },
-                    "compressionCodec": "snappy"
-                },
-                "schema": []
-            },
-            "dependsOn": [
-                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
-            ]
-        },
-        {
-            "name": "[concat(parameters('factoryName'), '/ds_adls_trips_incr_parquet')]",
-            "type": "Microsoft.DataFactory/factories/datasets",
-            "apiVersion": "2018-06-01",
-            "properties": {
-                "linkedServiceName": {
-                    "referenceName": "ls_adls_nyctaxi",
-                    "type": "LinkedServiceReference"
-                },
-                "parameters": {
-                    "folder": {
-                        "type": "string"
-                    },
-                    "load_id": {
-                        "type": "string"
-                    }
-                },
-                "annotations": [],
-                "type": "Parquet",
-                "typeProperties": {
-                    "location": {
-                        "type": "AzureBlobFSLocation",
-                        "fileName": {
-                            "value": "@{dataset().folder}.parquet",
-                            "type": "Expression"
-                        },
-                        "folderPath": {
-                            "value": "nyctaxi/@{dataset().folder}/incremental/load_id=@{dataset().load_id}",
-                            "type": "Expression"
-                        },
-                        "fileSystem": "bronze"
-                    },
-                    "compressionCodec": "snappy"
-                },
-                "schema": []
-            },
-            "dependsOn": [
-                "[concat(variables('factoryId'), '/linkedServices/ls_adls_nyctaxi')]"
+                "[concat(variables('factoryId'), '/pipelines/pl_incr_load_trips')]"
             ]
         }
     ]
